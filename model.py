@@ -8,6 +8,7 @@ class Model(nn.Module):
         self,
         vocab_size,
         block_size,
+        img_block_size,
         n_embed,
         n_layer,
         n_head,
@@ -16,9 +17,10 @@ class Model(nn.Module):
         self.wte = nn.Embedding(vocab_size, n_embed)
         self.wpe = nn.Embedding(block_size, n_embed)
 
-        self.img_encoder = ConvEncoder(n_embed=n_embed)
-
-        self.cross = LayerWithCrossAttn(n_embed=n_embed, n_head=n_head)
+        self.img_encoder = ConvEncoder(n_embed=n_embed, block_size=img_block_size)
+        
+        self.encoder = nn.ModuleList([Layer(n_embed, n_head) for _ in range(n_layer)])
+        self.decoder = nn.ModuleList([LayerWithCrossAttn(n_embed, n_head) for _ in range(n_layer)])
 
         # self.h = Layer(n_embed=n_embed, n_head=n_head)
 
@@ -28,8 +30,7 @@ class Model(nn.Module):
 
         self.block_size = block_size
 
-        # self.lm_head.weight = self.wte.weight
-
+#         self.lm_head.weight = self.wte.weight
         # self.apply(self._init_weights)
 
 
@@ -43,10 +44,10 @@ class Model(nn.Module):
             nn.init.normal_(module.weight, mean=0, std=0.02)
 
 
-    def forward(self, idx, image, targets=None):
+    def forward(self, idx, image):
         # idx is of shape (B, T)
         B, T = idx.size()
-        assert T <= self.block_size, f"Cannot forward sequence of length {T}, block size is only {self.block_size}"
+        # assert T <= self.block_size, f"Cannot forward sequence of length {T}, block size is only {self.block_size}"
         # forward the token and posisition embeddings
         pos = torch.arange(0, T, dtype=torch.long, device=idx.device) # shape (T)
         pos_emb = self.wpe(pos) # position embeddings of shape (T, n_embed)
@@ -54,16 +55,17 @@ class Model(nn.Module):
         x = tok_emb + pos_emb
 
         y = self.img_encoder(image)
-        x = self.cross(x, y)
-        # x = self.h(x)
+        for (encoder_layer, decoder_layer) in zip(self.encoder, self.decoder):
+            y = encoder_layer(y)
+            x = decoder_layer(x, y)
+        # for i in range(len(self.encoder)):
+        #     y = self.encoder[i](y)
+        #     x = self.decoder[i](x, y)
 
         # forward the final layernorm and the classifier
         x = self.ln_f(x)
         logits = self.lm_head(x) # (B, T, vocab_size)
-        loss = None
-        if targets is not None:
-            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
-        return logits, loss
+        return logits
 
 
 class Layer(nn.Module):
@@ -173,7 +175,7 @@ class CrossAttention(nn.Module):
         k = k.view(B, Ty, self.n_head, C // self.n_head).transpose(1, 2)
         v = v.view(B, Ty, self.n_head, C // self.n_head).transpose(1, 2)
 
-        result = F.scaled_dot_product_attention(q, k, v, is_causal=True) # flash attention
+        result = F.scaled_dot_product_attention(q, k, v) # flash attention
         result = result.transpose(1, 2).contiguous().view(B, Tx, C) # re-assemble all head outputs side by side
         # output projection
         result = self.c_proj(result)
@@ -184,27 +186,46 @@ class ConvEncoder(nn.Module):
     def __init__(
         self,
         n_embed,
+        block_size
     ):
         super().__init__()
-        # 3x128x256
-        self.conv1 = nn.Conv2d(3, n_embed // 4, (4, 4), 4)
-        self.relu1 = nn.ReLU()
-        # _x32x64
-        self.conv2 = nn.Conv2d(n_embed // 4, n_embed // 2, (4, 4), 4)
-        self.relu2 = nn.ReLU()
-        # _x8x16
-        self.conv3 = nn.Conv2d(n_embed // 2, n_embed, (2, 2), 2)
-        self.relu3 = nn.ReLU()
-        # _x4x8
-        self.wpe = nn.Embedding(32, n_embed)
-    def forward(self, x):
-        x = self.relu1(self.conv1(x))
-        x = self.relu2(self.conv2(x))
-        x = self.relu3(self.conv3(x))
+        # Convolutional layers
+        self.conv1 = nn.Conv2d(in_channels=3, out_channels=16, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, padding=1)
+        self.conv3 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, padding=1)
+        
+        # Pooling layer
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
+        
+        self.proj = nn.Conv2d(in_channels=64, out_channels=n_embed, kernel_size=4, stride=4)
 
+        self.wpe = nn.Embedding(block_size, n_embed)
+        self.block_size = block_size
+    
+    def _init_weight_from_cnn(self, cnn):
+        self.conv1.weight = cnn.conv1.weight
+        self.conv2.weight = cnn.conv2.weight
+        self.conv3.weight = cnn.conv3.weight
+    
+    def _freeze_cnn_layers(self):
+        for param in self.conv1.parameters():
+            param.requires_grad = False
+        for param in self.conv2.parameters():
+            param.requires_grad = False
+        for param in self.conv3.parameters():
+            param.requires_grad = False
+    
+    def forward(self, x):
+        # Convolution -> Activation -> Pooling
+        x = self.pool(F.relu(self.conv1(x)))  # Output: (16, 64, 128)
+        x = self.pool(F.relu(self.conv2(x)))  # Output: (32, 32, 64)
+        x = self.pool(F.relu(self.conv3(x)))  # Output: (64, 16, 32)
+        x = F.relu(self.proj(x)) # Output: (n_embed, 4, 8)
+        
         B, C, H, W = x.size()
-        pos = torch.arange(0, 32, dtype=torch.long, device=x.device)
+        x = x.view(B, C, -1).transpose(1, 2)
+        pos = torch.arange(0, x.size(1), dtype=torch.long, device=x.device)
         pos_emb = self.wpe(pos)
-        x  = x.view(B, C, -1).transpose(1, 2) + pos_emb
+        x  = x + pos_emb
 
         return x

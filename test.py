@@ -1,6 +1,15 @@
-import os
+import zipfile
 
-files = os.listdir('.')
+zip_ref = zipfile.ZipFile('data_gen/text_math.zip')
 
-for file in files:
-    print(file)
+i = 9
+file = zip_ref.open(f"data/texts/l1/{i}.png")
+text = zip_ref.open('data/texts/l1/texts.txt').read().decode('utf-8').split('\n')[i]
+print(text)
+
+from PIL import Image
+import matplotlib.pyplot as plt
+
+image = Image.open(file)
+plt.imshow(image)
+plt.show()

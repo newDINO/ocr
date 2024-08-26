@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<head>
+    <title>ocr demo</title>
+    <meta charset="utf-8">
+</head>
+<body style="display: flex; justify-content: center; background-color: aliceblue;">
+    <div>
+        <style>
+            canvas {
+                background-color: white;
+                border-radius: 7px;
+            }
+        </style>
+        <canvas id="canvas"></canvas>
+        <br>
+        <button id="clearButton">clear</button>
+        <input id="imageInput" type="file" accept="image/*" capture="environment">
+        <button id="processButton">Process</button>
+        <div id="outputsDiv"></div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+    <script src="t.js"></script>
+</body>

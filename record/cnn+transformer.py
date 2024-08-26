@@ -2,18 +2,54 @@
 Remember to remove the is_causal in scaled_product_attention() !!!
 Otherwise it tokens will be anable to get the image infomation !!!
 
-Trained on one, lr=3e-4, batch=1024, 1000epoch.
+1. Trained on one, lr=3e-4, batch=1024, 1000epoch.
 final train loss: 0.0051, final train accuracy: 1.0
 final val loss: 2.0168, final val accuracy: 0.5488
 Conclusion: overfitting.
 The training seems to be saturate after 300 epoch according to val loss.
 
-Trained on random, lr=3e-4, batch=1024, 1000epoch.
+2. Trained on random, lr=3e-4, batch=1024, 1000epoch.
 final train loss: 0.0126, final val loss: 5.728
 Conclusion: overfitting.
 The model is memorizing the sequeces!
 
-Trained on random with only 1 layer still get the similar result to the previous experiment.
+3. Trained on random with only 1 layer still get the similar result to the previous experiment.
+
+4. Training while generating data is much slower, around 1.5s/iter, and after 1000 epoch, it doesn't get good result.
+
+5. Trained on two for 300epoch after 300epoch on one, reach 0.99accuracy on training set, 0.59 on validation set with minor overfitting.
+In fact, 200epcho is enough for no overfitting training.
+
+6. Trained on three for 300epoch after trained on two, similar result.
+
+7. Trained on four for 200epoch, reaching 0.99 train_acc, 0.69val_acc, it seems now 100 epoch is enought according val loss graph.
+
+8. After 7, training on generated data seem to work, after 1000epoch training of lr 3e-4, average loss dropped from around 4 to 3.
+
+9. After another 8 style training, average loss dropped from around 3 to around 2.
+
+10. After another 8 style training, average loss dropped from around 1.7 to around 1.
+
+11. After another 8 style training. average loss dropped from around 1 to around 0.7.
+
+12. After another 8 style training, but with accumulation loss step of , average loss dropped from around 0.7 to around 0.3.
+High loss dropped from around 1.9 to 1.6.
+
+13. After training for length >= 13, loss dropped from around 1.5 to around 0.63. Accuracy is now around 0.79 for long texts.
+
+14. After training for length >= 8 for 500epoch, the model relearned how to deal with larger fonts.
+This means that the model forget how to deal with larger fonts at the begining, but the loss quickly dropped.
+After training, the high loss is around 1, and the low loss is around 0.3.
+
+15. After training for length >= 11 for 500epoch, the loss dropped from 0.8 to 0.6.
+
+16. After training for legnth >= 10 with equaling 10 of size 23, the loss dropped from around 0.7 to around 0.55.
+
+17. 0.6 to 0.45, accumulation4, lr1e-4, epoch1000
+
+18. 0.45 to 0.37.
+
+19. 0.38 to 0.35. It seems to have reached the limit.
 """
 
 
