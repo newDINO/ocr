@@ -67,13 +67,16 @@ async function main() {
     processButton.addEventListener('click', () => {
         outputsDiv.innerHTML = '';
         generate(session, canvas, (c) => outputsDiv.innerHTML += c, 16, 0);
+
+        // test(session, canvas);
     });
 }
+
 
 async function generate(session, image, outStream, maxLen, eosId) {
     let idx = new BigInt64Array(1);
     idx[0] = BigInt(0);
-    let imageTensor = ort.Tensor.fromImage(
+    let imageTensor = await ort.Tensor.fromImage(
         await createImageBitmap(image),
         {
             dataType: "float32",
@@ -81,16 +84,21 @@ async function generate(session, image, outStream, maxLen, eosId) {
             tensorLayout: "NCHW",
         }
     );
-    console.log("generation started");
 
     for(let i = 0; i < maxLen; i += 1) {
-        let idxTensor = new ort.Tensor(idx);
-        let output = await session.run({
-            "idx": idxTensor,
-            "image": imageTensor,
-        });
+        let idxTensor = new ort.Tensor(idx, [1, i + 1]);
+        let output = await session.run(
+            {
+                "idx": idxTensor,
+                "image": imageTensor,
+            },
+            {
+                "logSeverityLevel": 4,
+                "logVerbosityLevel": 10,
+            }
+        );
     
-        let outputId = output["output"].getData();
+        let outputId = await output["output"].getData();
         if(outputId[0] == eosId) {
             break;
         }
@@ -105,13 +113,13 @@ async function generate(session, image, outStream, maxLen, eosId) {
 function decode(idx) {
     let chars = [];
     for(id of idx) {
-        chars.push(id + 32);
+        chars.push(Number(id) + 32);
     }
     return String.fromCharCode(chars);
 }
 
 function catBigIntArray(a1, a2) {
-    let result = new BigInt64Array(a1,length + a1.length);
+    let result = new BigInt64Array(a1.length + a2.length);
     result.set(a1);
     result.set(a2, a1.length);
     return result;

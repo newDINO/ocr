@@ -8,7 +8,7 @@ tiny-skia = "*"
 cosmic-text = "*"
 fontdb = "*"
 rand = "*"
-mathjax = { version = "*", default-features = false, features = ["node", "image"] }
+# mathjax = { version = "*", default-features = false, features = ["node", "image"] }
 zip = "*"
 indicatif = "*"
 image = "*"

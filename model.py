@@ -30,7 +30,7 @@ class Model(nn.Module):
 
         self.block_size = block_size
 
-#         self.lm_head.weight = self.wte.weight
+        # self.lm_head.weight = self.wte.weight
         # self.apply(self._init_weights)
 
 
@@ -55,12 +55,12 @@ class Model(nn.Module):
         x = tok_emb + pos_emb
 
         y = self.img_encoder(image)
-        for (encoder_layer, decoder_layer) in zip(self.encoder, self.decoder):
-            y = encoder_layer(y)
-            x = decoder_layer(x, y)
-        # for i in range(len(self.encoder)):
-        #     y = self.encoder[i](y)
-        #     x = self.decoder[i](x, y)
+        # for (encoder_layer, decoder_layer) in zip(self.encoder, self.decoder):
+        #     y = encoder_layer(y)
+        #     x = decoder_layer(x, y)
+        for i in range(len(self.encoder)):
+            y = self.encoder[i](y)
+            x = self.decoder[i](x, y)
 
         # forward the final layernorm and the classifier
         x = self.ln_f(x)
