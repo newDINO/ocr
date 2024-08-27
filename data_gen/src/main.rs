@@ -114,7 +114,7 @@ impl TextRenderer {
         let max_scale = hf.min(test_scale / twf * wf).min(test_scale / thf * hf);
         let min_scale = 32.0f32.min(max_scale);
 
-        let scale = rng.gen_range(min_scale..max_scale);
+        let scale = rng.gen_range(min_scale..=max_scale);
         let width = scale / test_scale * twf;
         let height = scale / test_scale * thf;
 
