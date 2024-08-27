@@ -1,8 +1,8 @@
-use std::{fs::{self, File}, io::{Cursor, Read, Write}};
+use std::{fs::{self, File}, io::{Read, Write}};
 
 use ab_glyph::FontVec;
-use image::{ImageFormat, Rgb, RgbImage};
-use imageproc::drawing::{draw_filled_rect_mut, draw_text_mut, text_size};
+use image::{Rgb, RgbImage};
+use imageproc::drawing::draw_filled_rect_mut;
 use rand::prelude::*;
 
 fn main() {
@@ -13,18 +13,16 @@ fn main() {
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Stored);
 
-    let (min_len, max_len) = (1, 15);
+    let (min_len, max_len) = (7, 7);
     let mut text_buffer = String::new();
 
     let mut text_renderer = TextRenderer::new();
-    let mut image_buffer = RgbImage::new(256, 128);
-    let mut encode_buffer: Cursor<Vec<u8>> = Cursor::new(Vec::new());
     
-    let n = 2usize.pow(13);
+    let n = 2usize.pow(5);
     let bar = indicatif::ProgressBar::new((max_len * n) as u64);
     for len in min_len..=max_len {
         let mut texts = String::new();
-        for i in 0..n {
+        for _ in 0..n {
             random_text(
                 &mut text_buffer,
                 len,
@@ -33,18 +31,10 @@ fn main() {
             texts += &text_buffer;
             texts.push('\n');
 
-            text_renderer.render(&mut image_buffer, &text_buffer, &mut rng);
-
-            encode_buffer.get_mut().clear();
-            encode_buffer.set_position(0);
-            image_buffer.write_to(&mut encode_buffer, ImageFormat::Png).unwrap();
-            zip.start_file_from_path(format!("data/texts/l{len}/{i}.png"), options).unwrap();
-            zip.write_all(encode_buffer.get_ref()).unwrap();
-
             bar.inc(1);
         }
         zip.start_file_from_path(format!("data/texts/l{len}/texts.txt"), options).unwrap();
-        zip.write_all(texts.as_bytes()).unwrap();
+        zip.write(texts.as_bytes()).unwrap();
     }
 
     bar.finish();
@@ -91,39 +81,12 @@ impl TextRenderer {
         }
     }
 
-    fn render(
-        &mut self,
-        buffer: &mut RgbImage,
-        text: &str,
-        rng: &mut rand::rngs::ThreadRng,
-    ) {
-        let wf = buffer.width() as f32;
-        let hf = buffer.height() as f32;
-
+    fn render(&mut self, buffer: &mut RgbImage) {
+        let mut image = RgbImage::new(200, 200);
         // clear
         let background_color = Rgb([255u8, 255u8, 255u8]);
         let rect = imageproc::rect::Rect::at(0, 0).of_size(buffer.width(), buffer.height());
-        draw_filled_rect_mut(buffer, rect, background_color);
-
-        // random attr
-        let font = &self.fonts[rng.gen_range(0..self.fonts.len())];
-        let test_scale = 64.0;
-        let tested_size = text_size(test_scale, font, text);
-        let (twf, thf) = (tested_size.0 as f32, tested_size.1 as f32);
-
-        let max_scale = hf.min(test_scale / twf * wf).min(test_scale / thf * hf);
-        let min_scale = 32.0f32.min(max_scale);
-
-        let scale = rng.gen_range(min_scale..max_scale);
-        let width = scale / test_scale * twf;
-        let height = scale / test_scale * thf;
-
-        let x = rng.gen_range(0 ..= buffer.width() - width as u32) as i32;
-        let y = rng.gen_range(0 ..= buffer.height() - height as u32) as i32;
-
-        // draw
-        let text_color = Rgb([0u8, 0u8, 0u8]);
-        draw_text_mut(buffer, text_color, x, y, scale, font, text);
+        draw_filled_rect_mut(&mut image, rect, background_color);
     }
 }
 

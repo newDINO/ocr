@@ -4,11 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-tiny-skia = "*"
-cosmic-text = "*"
-fontdb = "*"
+# tiny-skia = "*"
+# cosmic-text = "*"
+# fontdb = "*"
+imageproc = "*"
 rand = "*"
-# mathjax = { version = "*", default-features = false, features = ["node", "image"] }
 zip = "*"
 indicatif = "*"
 image = "*"
+ab_glyph = "*"

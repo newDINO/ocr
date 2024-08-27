@@ -50,6 +50,17 @@ After training, the high loss is around 1, and the low loss is around 0.3.
 18. 0.45 to 0.37.
 
 19. 0.38 to 0.35. It seems to have reached the limit.
+
+20. The model behaved poorly on text of other fonts when tested on generation.
+
+21. Trained on math text, length: 8 to 16, after 100 iter, reached 0.96 accuracy on both training and val set.
+
+22. But the generation still seems not so good. But due to some unknown reasons, the generation today seems much faster.
+For some fonts and symbols, the generation is good, but for others, it is not so good. And the generation tend to skip some tokens.
+Conclusion: more training on different fonts are needed.
+
+23. Record 22 is not correct for not converting the right model. After training for 3 turns of math text. The model is much better now, almost always right.
+But still the model is poor at hand written letters.
 """
 
 

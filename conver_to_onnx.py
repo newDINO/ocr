@@ -245,7 +245,7 @@ model = Model(
     n_head=n_head,
 )
 
-model.load_state_dict(torch.load("models/2layersGen5.bin", map_location='cpu'))
+model.load_state_dict(torch.load("models/2layersMath3.bin", map_location='cpu'))
 
 dummy_image_input = torch.randn(1, 3, 128, 256)
 dummy_idx_input = torch.randint(0, vocab_size, (1, block_size), dtype=torch.long)
