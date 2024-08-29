@@ -15,9 +15,12 @@ async function main() {
     canvas.style.width = canvas.width * scale + 'px'
     canvas.style.height = canvas.height * scale + 'px'
     let ctx = canvas.getContext('2d');
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     // drawing
-    ctx.lineWidth = 2.0;
+    ctx.lineWidth = 5.0;
+    ctx.lineCap = "round";
     let last_x = null;
     let last_y = null;
     canvas.addEventListener('pointerdown', (e) => {
@@ -39,7 +42,10 @@ async function main() {
         last_x = x;
         last_y = y;
     });
-    clearButton.addEventListener('click', () => ctx.clearRect(0, 0, canvas.width, canvas.height));
+    clearButton.addEventListener('click', () => {
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    });
     
     // putting image
     imageInput.addEventListener('change', () => {
@@ -66,7 +72,8 @@ async function main() {
     // recognition
     processButton.addEventListener('click', () => {
         outputsDiv.innerHTML = '';
-        generate(session, canvas, (c) => outputsDiv.innerHTML += c, 16, 0);
+        image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        generate(session, image, (c) => outputsDiv.innerHTML += c, 16, 0);
 
         // test(session, canvas);
     });
@@ -77,7 +84,7 @@ async function generate(session, image, outStream, maxLen, eosId) {
     let idx = new BigInt64Array(1);
     idx[0] = BigInt(0);
     let imageTensor = await ort.Tensor.fromImage(
-        await createImageBitmap(image),
+        image,
         {
             dataType: "float32",
             tensorFormat: "RGB",

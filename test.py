@@ -1,15 +1,26 @@
-import zipfile
+import torch
 
-zip_ref = zipfile.ZipFile('data_gen/text_math.zip')
+from model import Model
 
-i = 9
-file = zip_ref.open(f"data/texts/l1/{i}.png")
-text = zip_ref.open('data/texts/l1/texts.txt').read().decode('utf-8').split('\n')[i]
-print(text)
+device = 'cuda'
+block_size = 64
+img_block_size = 32
+n_embed = 512
+n_head = 8
+n_layer = 2
+dtype = torch.float32
+vocab_size = 126 - 32 + 1
 
-from PIL import Image
-import matplotlib.pyplot as plt
+model = Model(
+    vocab_size=vocab_size,
+    block_size=block_size,
+    img_block_size=img_block_size,
+    n_embed=n_embed,
+    n_layer=2,
+    n_head=n_head,
+)
 
-image = Image.open(file)
-plt.imshow(image)
-plt.show()
+def cal_n_param(model):
+    return sum(p.numel() for p in model.parameters())
+
+print(cal_n_param(model))
