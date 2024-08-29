@@ -13,3 +13,4 @@ zip = "*"
 indicatif = "*"
 image = "*"
 ab_glyph = "*"
+clap = { version = "*", features = ["derive"] }

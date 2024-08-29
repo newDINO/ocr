@@ -1,11 +1,24 @@
 use std::{fs::{self, File}, io::{Cursor, Read, Write}};
 
 use ab_glyph::FontVec;
+use clap::Parser;
 use image::{ImageFormat, Rgb, RgbImage};
 use imageproc::drawing::{draw_filled_rect_mut, draw_text_mut, text_size};
 use rand::prelude::*;
 
+#[derive(clap::Parser)]
+struct Args {
+    #[arg(short, long)]
+    number_per_length: usize,
+    #[arg(long)]
+    minl: usize,
+    #[arg(long)]
+    maxl: usize,
+}
+
 fn main() {
+    let args = Args::parse();
+
     let mut rng = rand::thread_rng();
 
     let file = File::create("text.zip").unwrap();
@@ -13,14 +26,14 @@ fn main() {
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Stored);
 
-    let (min_len, max_len) = (1, 8);
+    let (min_len, max_len) = (args.minl, args.maxl);
     let mut text_buffer = String::new();
 
     let mut text_renderer = TextRenderer::new();
     let mut image_buffer = RgbImage::new(256, 128);
     let mut encode_buffer: Cursor<Vec<u8>> = Cursor::new(Vec::new());
     
-    let n = 2usize.pow(4);
+    let n = args.number_per_length;
     let bar = indicatif::ProgressBar::new(((max_len - min_len + 1) * n) as u64);
     for len in min_len..=max_len {
         let mut texts = String::new();
