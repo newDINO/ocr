@@ -1,11 +1,24 @@
 use std::{fs::{self, File}, io::{Cursor, Read, Write}};
 
 use ab_glyph::FontVec;
+use clap::Parser;
 use image::{ImageFormat, Rgb, RgbImage};
 use imageproc::drawing::{draw_filled_rect_mut, draw_text_mut, text_size};
 use rand::prelude::*;
 
+#[derive(clap::Parser)]
+struct Args {
+    #[arg(short, long)]
+    number_per_length: usize,
+    #[arg(long)]
+    minl: usize,
+    #[arg(long)]
+    maxl: usize,
+}
+
 fn main() {
+    let args = Args::parse();
+
     let mut rng = rand::thread_rng();
 
     let file = File::create("text.zip").unwrap();
@@ -13,15 +26,15 @@ fn main() {
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Stored);
 
-    let (min_len, max_len) = (1, 15);
+    let (min_len, max_len) = (args.minl, args.maxl);
     let mut text_buffer = String::new();
 
     let mut text_renderer = TextRenderer::new();
     let mut image_buffer = RgbImage::new(256, 128);
     let mut encode_buffer: Cursor<Vec<u8>> = Cursor::new(Vec::new());
     
-    let n = 2usize.pow(13);
-    let bar = indicatif::ProgressBar::new((max_len * n) as u64);
+    let n = args.number_per_length;
+    let bar = indicatif::ProgressBar::new(((max_len - min_len + 1) * n) as u64);
     for len in min_len..=max_len {
         let mut texts = String::new();
         for i in 0..n {
@@ -57,9 +70,10 @@ fn random_text(
     rng: &mut rand::rngs::ThreadRng,
 ) {
     buffer.clear();
-    const CHARS: [char; 39] = [
+    const CHARS: [char; 71] = [
+        'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
         'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
-        '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '+', '-', '='
+        '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '+', '-', '=', '(', ')', '[', ']', '<', '>',
     ];
     for _ in 0..len {
         let i = rng.gen_range(0..CHARS.len());

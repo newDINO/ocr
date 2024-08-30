@@ -1,0 +1,6 @@
+number_per_length = 16
+minl = 6
+maxl = 6
+font_dirs = [
+    "fonts/print"
+]

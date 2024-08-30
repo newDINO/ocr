@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 # tiny-skia = "*"
+# mathjax = "*"
 # cosmic-text = "*"
 # fontdb = "*"
 imageproc = "*"
@@ -14,3 +15,5 @@ indicatif = "*"
 image = "*"
 ab_glyph = "*"
 clap = { version = "*", features = ["derive"] }
+toml = "*"
+serde = { version = "*", features = ["derive"] }
