@@ -9,15 +9,21 @@ use rand::prelude::*;
 #[derive(clap::Parser)]
 struct Args {
     #[arg(short, long)]
+    config: String,
+}
+
+#[derive(serde::Deserialize)]
+struct Config {
     number_per_length: usize,
-    #[arg(long)]
     minl: usize,
-    #[arg(long)]
     maxl: usize,
+    font_dirs: Vec<String>,
 }
 
 fn main() {
     let args = Args::parse();
+    let config = read_file_to_string(args.config);
+    let config: Config = toml::from_str(&config).unwrap();
 
     let mut rng = rand::thread_rng();
 
@@ -26,14 +32,14 @@ fn main() {
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Stored);
 
-    let (min_len, max_len) = (args.minl, args.maxl);
+    let (min_len, max_len) = (config.minl, config.maxl);
     let mut text_buffer = String::new();
 
-    let mut text_renderer = TextRenderer::new();
+    let mut text_renderer = TextRenderer::new(&config.font_dirs);
     let mut image_buffer = RgbImage::new(256, 128);
     let mut encode_buffer: Cursor<Vec<u8>> = Cursor::new(Vec::new());
     
-    let n = args.number_per_length;
+    let n = config.number_per_length;
     let bar = indicatif::ProgressBar::new(((max_len - min_len + 1) * n) as u64);
     for len in min_len..=max_len {
         let mut texts = String::new();
@@ -85,12 +91,8 @@ struct TextRenderer {
     fonts: Vec<FontVec>,
 }
 impl TextRenderer {
-    fn new() -> Self {
+    fn new(dir_paths: &[String]) -> Self {
         let mut fonts = Vec::new();
-        let dir_paths = [
-            "fonts/print",
-            "fonts/diverse",
-        ];
         for dir_path in dir_paths {
             let dir = fs::read_dir(dir_path).unwrap();
             for entry in dir {
@@ -146,4 +148,11 @@ fn read_file_to_vec<P: AsRef<std::path::Path>>(path: P) -> Vec<u8> {
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer).unwrap();
     buffer
+}
+
+fn read_file_to_string<P: AsRef<std::path::Path>>(path: P) -> String {
+    let mut file = File::open(path).unwrap();
+    let mut string = String::new();
+    file.read_to_string(&mut string).unwrap();
+    string
 }

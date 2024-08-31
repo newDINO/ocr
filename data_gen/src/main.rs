@@ -18,6 +18,8 @@ struct Config {
     minl: usize,
     maxl: usize,
     font_dirs: Vec<String>,
+    width: u32,
+    height: u32,
 }
 
 fn main() {
@@ -36,7 +38,7 @@ fn main() {
     let mut text_buffer = String::new();
 
     let mut text_renderer = TextRenderer::new(&config.font_dirs);
-    let mut image_buffer = RgbImage::new(256, 128);
+    let mut image_buffer = RgbImage::new(config.width, config.height);
     let mut encode_buffer: Cursor<Vec<u8>> = Cursor::new(Vec::new());
     
     let n = config.number_per_length;
