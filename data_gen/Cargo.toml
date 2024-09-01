@@ -3,17 +3,24 @@ name = "data_gen"
 version = "0.1.0"
 edition = "2021"
 
+# [dependencies]
+# imageproc = "*"
+# rand = "*"
+# zip = "*"
+# indicatif = "*"
+# image = "*"
+# ab_glyph = "*"
+# clap = { version = "*", features = ["derive"] }
+# toml = "*"
+# serde = { version = "*", features = ["derive"] }
+
 [dependencies]
-# tiny-skia = "*"
-# mathjax = "*"
-# cosmic-text = "*"
-# fontdb = "*"
-imageproc = "*"
 rand = "*"
-zip = "*"
 indicatif = "*"
-image = "*"
-ab_glyph = "*"
-clap = { version = "*", features = ["derive"] }
-toml = "*"
-serde = { version = "*", features = ["derive"] }
+tiny-skia = "*"
+resvg = "*"
+usvg = "*"
+
+# [dependencies]
+# typst = "*"
+# typst-svg = "*"

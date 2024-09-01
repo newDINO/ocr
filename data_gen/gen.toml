@@ -4,5 +4,5 @@ maxl = 64
 font_dirs = [
     "fonts/print"
 ]
-width = 384
+width = 256
 height = 128

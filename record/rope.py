@@ -50,7 +50,8 @@ Trained on 6~12 img for 5 epoch
 Iters: 100
 Accumulations: 4
 
-7.
+7. One important thing that I have ignored is that visual things truly shouldn't extand their length casually.
+Because it is 2 dimensional!
 
 """
 
