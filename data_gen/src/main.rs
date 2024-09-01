@@ -1,100 +1,129 @@
 use std::{
-    fs,
-    io::{Read, Write},
-    process,
+    collections::HashMap, fs::{self, File}, io::{Read, Write}, process
 };
 
-use indicatif::ProgressBar;
 use rand::prelude::*;
 use resvg::usvg;
+use clap::Parser;
+use tiny_skia::Pixmap;
+
+#[derive(clap::Parser)]
+struct Args {
+    #[arg(short, long)]
+    config: String,
+}
+
+#[derive(serde::Deserialize)]
+struct Config {
+    num_at_depth: HashMap<String, usize>,
+    min_num: usize,
+    max_length: usize,
+}
 
 fn main() {
+    let args = Args::parse();
+    let config = read_file_to_string(args.config);
+    let config: Config = toml::from_str(&config).unwrap();
+    
     let mut rng = thread_rng();
 
-    let n = 16;
-
-    let mut nodes = Vec::with_capacity(n);
-    println!("Generating Nodes:");
-    let bar = ProgressBar::new(n as u64);
-    for _ in 0..n {
-        bar.inc(1);
-        nodes.push(MathNode::random(&mut rng, 0, 2))
+    // 1.
+    println!("Generating Nodes...");
+    let mut nodes = Vec::new();
+    for (max_depth_s, num) in config.num_at_depth {
+        let max_depth = max_depth_s.parse::<usize>().unwrap();
+        for _ in 0..num {
+            nodes.push(MathNode::random(&mut rng, 0, max_depth))
+        }
     }
-    bar.finish();
 
-    let mut lateses = Vec::with_capacity(n);
-    println!("Generating Latex:");
-    let bar = ProgressBar::new(n as u64);
-    for i in 0..n {
-        bar.inc(1);
-        lateses.push(nodes[i].to_latex());
+    // 2.
+    println!("Generating Latex...");
+    let mut latex_map: HashMap<usize, Vec<String>> = HashMap::new();
+    for node in &nodes {
+        let latex = node.to_latex();
+        if latex.len() > config.max_length {
+            continue;
+        }
+        if let Some(v) = latex_map.get_mut(&latex.len()) {
+            v.push(latex);
+        } else {
+            latex_map.insert(latex.len(), vec![latex]);
+        }
     }
-    bar.finish();
+
     drop(nodes);
-    let mut texts = String::new();
-    for latex in &lateses {
-        texts.push_str(latex);
-        texts.push('\n');
-    }
-    let mut file = fs::File::create("data/latex/texts.txt").unwrap();
-    file.write_all(texts.as_bytes()).unwrap();
 
-    println!("Generating Svgs:");
+    latex_map.retain(|_, v| v.len() > config.min_num);
+
+    for (length, lateses) in &latex_map {
+        let path = format!("data/latex/l{}", length);
+        let _ = fs::create_dir(&path);
+        let mut texts = String::new();
+        for latex in lateses {
+            texts.push_str(latex);
+            texts.push('\n');
+        }
+        let mut file = File::create(path + "/texts.txt").unwrap();
+        file.write_all(texts.as_bytes()).unwrap();
+    }
+
+    // 3.
+    println!("Generating SVGs:");
     process::Command::new("node")
         .arg("nodejs/tex2svg.js")
         .output()
         .unwrap();
-    let svg_texts = read_file_to_string("data/latex/svg.txt");
-    let svgs = svg_texts.split('\n').collect::<Vec<&str>>();
-
-    let mut pngs = Vec::with_capacity(n);
-    println!("Generating Pngs:");
+    
+    // 4.
+    println!("Generating PNGs:");
+    let render_options = usvg::Options::default();
     let mut image_buffer = tiny_skia::Pixmap::new(256, 128).unwrap();
-    let wf = image_buffer.width() as f32;
-    let hf = image_buffer.height() as f32;
-    let reander_option = usvg::Options::default();
-    let bar = ProgressBar::new(n as u64);
-    for i in 0..n {
-        bar.inc(1);
-        image_buffer.fill(tiny_skia::Color::WHITE);
-
-        let tree = usvg::Tree::from_str(svgs[i], &reander_option).unwrap();
-
-        let original_size = tree.size();
-        let max_scale = (wf / original_size.width()).min(hf / original_size.height());
-        let min_scale = 2.0f32.min(max_scale);
-        let scale = rng.gen_range(min_scale..=max_scale);
-        let width = original_size.width() * scale;
-        let height = original_size.height() * scale;
-
-        let x = rng.gen_range(0.0..=wf - width);
-        let y = rng.gen_range(0.0..=hf - height);
-
-        resvg::render(
-            &tree,
-            usvg::Transform::from_scale(scale, scale).post_translate(x, y),
-            &mut image_buffer.as_mut(),
-        );
-        pngs.push(image_buffer.encode_png().unwrap());
+    for (length, _) in &latex_map {
+        let svg_src = read_file_to_string(format!("data/latex/l{}/svg.txt", length));
+        svg_src.split("\n").enumerate().for_each(|(i, svg)| {
+            let mut png = gen_png(&mut rng, svg, &mut image_buffer, &render_options);
+            let mut file = File::create(format!("data/latex/l{}/{}.png", length, i)).unwrap();
+            file.write_all(&mut png).unwrap();
+        });
     }
-    bar.finish();
-    drop(svgs);
-
-    println!("Saving Pngs:");
-    let bar = ProgressBar::new(n as u64);
-    for i in 0..n {
-        bar.inc(1);
-        let mut file = fs::File::create(format!("data/latex/{i}.png")).unwrap();
-        file.write_all(&pngs[i]).unwrap();
-    }
-    bar.finish();
 }
 
-fn read_file_to_string(path: &str) -> String {
-    let mut file = fs::File::open(path).unwrap();
-    let mut result = String::new();
-    file.read_to_string(&mut result).unwrap();
-    result
+fn gen_png(
+    rng: &mut ThreadRng,
+    svg: &str,
+    buffer: &mut Pixmap,
+    options: &usvg::Options,
+) -> Vec<u8> {
+    buffer.fill(tiny_skia::Color::WHITE);
+    let wf = buffer.width() as f32;
+    let hf = buffer.height() as f32;
+
+    let tree = usvg::Tree::from_str(svg, options).unwrap();
+
+    let original_size = tree.size();
+    let max_scale = (wf / original_size.width()).min(hf / original_size.height());
+    let min_scale = 2.0f32.min(max_scale);
+    let scale = rng.gen_range(min_scale..=max_scale);
+    let width = original_size.width() * scale;
+    let height = original_size.height() * scale;
+
+    let x = rng.gen_range(0.0..=wf - width);
+    let y = rng.gen_range(0.0..=hf - height);
+
+    resvg::render(
+        &tree,
+        usvg::Transform::from_scale(scale, scale).post_translate(x, y),
+        &mut buffer.as_mut(),
+    );
+    buffer.encode_png().unwrap()
+}
+
+fn read_file_to_string<P: AsRef<std::path::Path>>(path: P) -> String {
+    let mut file = File::open(path).unwrap();
+    let mut string = String::new();
+    file.read_to_string(&mut string).unwrap();
+    string
 }
 
 enum MathNode {
@@ -134,20 +163,18 @@ impl MathNode {
             };
         } else if depth == 0 {
             depth += 1;
-            let rand_type = rng.gen_range(0..7);
+            let rand_type = rng.gen_range(0..6);
             return if rand_type == 0 {
                 MathNode::Add(AddNode::random(rng, depth, max_depth))
             } else if rand_type == 1 {
                 MathNode::Sub(SubNode::random(rng, depth, max_depth))
             } else if rand_type == 2 {
-                MathNode::Val(ValNode::random(rng))
-            } else if rand_type == 3 {
                 MathNode::Frac(FracNode::random(rng, depth, max_depth))
-            } else if rand_type == 4 {
+            } else if rand_type == 3 {
                 MathNode::Pow(PowNode::random(rng, depth, max_depth))
-            } else if rand_type == 5 {
+            } else if rand_type == 4 {
                 MathNode::Sqrt(SqrtNode::random(rng, depth, max_depth))
-            } else if rand_type == 6 {
+            } else if rand_type == 5 {
                 MathNode::Mono(MonoNode::random(rng, depth, max_depth))
             } else {
                 unreachable!()

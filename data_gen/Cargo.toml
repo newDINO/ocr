@@ -16,10 +16,12 @@ edition = "2021"
 
 [dependencies]
 rand = "*"
-indicatif = "*"
 tiny-skia = "*"
 resvg = "*"
 usvg = "*"
+toml = "*"
+serde = { version = "*", features = ["derive"] }
+clap = { version = "*", features = ["derive"] }
 
 # [dependencies]
 # typst = "*"
