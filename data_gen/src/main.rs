@@ -38,48 +38,56 @@ fn main() {
     }
 
     // 2.
-    println!("Generating Latex...");
-    let mut latex_map: HashMap<usize, Vec<String>> = HashMap::new();
+    println!("Generating Latex and Text...");
+    // Vec<(latex, text)>
+    let mut text_map: HashMap<usize, Vec<(String, String)>> = HashMap::new();
     for node in &nodes {
         let latex = node.to_latex();
-        if latex.len() > config.max_length {
-            continue;
+        let text = node.to_text();
+        if text.len() > config.max_length {
+            continue; // discarding those longer than the context window of the model
         }
-        if let Some(v) = latex_map.get_mut(&latex.len()) {
-            v.push(latex);
+        if let Some(v) = text_map.get_mut(&text.len()) {
+            v.push((latex, text));
         } else {
-            latex_map.insert(latex.len(), vec![latex]);
+            text_map.insert(text.len(), vec![(latex, text)]);
         }
     }
 
     drop(nodes);
 
-    latex_map.retain(|_, v| v.len() > config.min_num);
+    // leaving only those length with enough samples
+    text_map.retain(|_, v| v.len() > config.min_num);
 
-    for (length, lateses) in &latex_map {
-        let path = format!("data/latex/l{}", length);
-        let _ = fs::create_dir(&path);
-        let mut texts = String::new();
-        for latex in lateses {
-            texts.push_str(latex);
-            texts.push('\n');
+    // saving latex and text
+    for (length, lateses) in &text_map {
+        let _ = fs::create_dir(format!("data/latex/l{}", length));
+        let mut latex_s = String::new();
+        let mut text_s = String::new();
+        for (latex, text) in lateses {
+            latex_s.push_str(latex);
+            latex_s.push('\n');
+            text_s.push_str(text);
+            text_s.push('\n');
         }
-        let mut file = File::create(path + "/texts.txt").unwrap();
-        file.write_all(texts.as_bytes()).unwrap();
+        let mut file = File::create(format!("data/latex/l{}/latex_s.txt", length)).unwrap();
+        file.write_all(latex_s.as_bytes()).unwrap();
+        let mut file = File::create(format!("data/latex/l{}/text_s.txt", length)).unwrap();
+        file.write_all(text_s.as_bytes()).unwrap();
     }
 
     // 3.
-    println!("Generating SVGs:");
+    println!("Generating SVGs...");
     process::Command::new("node")
         .arg("nodejs/tex2svg.js")
         .output()
         .unwrap();
     
     // 4.
-    println!("Generating PNGs:");
+    println!("Generating PNGs...");
     let render_options = usvg::Options::default();
     let mut image_buffer = tiny_skia::Pixmap::new(256, 128).unwrap();
-    for (length, _) in &latex_map {
+    for (length, _) in &text_map {
         let svg_src = read_file_to_string(format!("data/latex/l{}/svg.txt", length));
         svg_src.split("\n").enumerate().for_each(|(i, svg)| {
             let mut png = gen_png(&mut rng, svg, &mut image_buffer, &render_options);
@@ -149,6 +157,19 @@ impl MathNode {
             MathNode::Pow(node) => node.to_latex(),
             MathNode::Sqrt(node) => node.to_latex(),
             MathNode::Mono(node) => node.to_latex(),
+        }
+    }
+    fn to_text(&self) -> String {
+        match self {
+            MathNode::Add(node) => node.to_text(),
+            MathNode::Sub(node) => node.to_text(),
+            MathNode::Uint(num) => num.to_string(),
+            MathNode::Neg(node) => node.to_text(),
+            MathNode::Val(node) => node.to_text(),
+            MathNode::Frac(node) => node.to_text(),
+            MathNode::Pow(node) => node.to_text(),
+            MathNode::Sqrt(node) => node.to_text(),
+            MathNode::Mono(node) => node.to_text(),
         }
     }
     fn random(rng: &mut ThreadRng, mut depth: usize, max_depth: usize) -> Self {
@@ -238,6 +259,9 @@ impl SqrtNode {
     fn to_latex(&self) -> String {
         format!("\\sqrt{{{}}}", self.inner.to_latex())
     }
+    fn to_text(&self) -> String {
+        format!("sqrt({})", self.inner.to_text())
+    }
     fn random(rng: &mut ThreadRng, depth: usize, max_depth: usize) -> Self {
         Self {
             inner: Box::new(MathNode::random(rng, depth, max_depth)),
@@ -264,6 +288,13 @@ impl PowNode {
         };
         format!("{}^{{{}}}", base_string, self.exp.to_latex())
     }
+    fn to_text(&self) -> String {
+        let exp_text = match &*self.exp {
+            MathNode::Uint(_) | MathNode::Val(_) => self.exp.to_text(),
+            _ => format!("({})", self.exp.to_text()),
+        };
+        format!("{}**{}", self.base.to_text(), exp_text)
+    }
     fn random(rng: &mut ThreadRng, depth: usize, max_depth: usize) -> Self {
         Self {
             base: Box::new(MathNode::random(rng, depth, max_depth)),
@@ -283,6 +314,17 @@ impl FracNode {
             self.up.to_latex(),
             self.down.to_latex()
         )
+    }
+    fn to_text(&self) -> String {
+        let up_text = match &*self.up {
+            MathNode::Uint(_) | MathNode::Val(_) => self.up.to_text(),
+            _ => format!("({})", self.up.to_text()),
+        };
+        let down_text = match &*self.down {
+            MathNode::Uint(_) | MathNode::Val(_) => self.down.to_text(),
+            _ => format!("({})", self.down.to_text()),
+        };
+        format!("{}/{}", up_text, down_text)
     }
     fn random(rng: &mut ThreadRng, depth: usize, max_depth: usize) -> Self {
         Self {
@@ -308,6 +350,13 @@ impl ValNode {
             self.main.to_string()
         }
     }
+    fn to_text(&self) -> String {
+        if let Some(sub) = &self.subscription {
+            format!("{}_{} ", self.main, sub)
+        } else {
+            self.main.to_string()
+        }
+    }
     fn random(rng: &mut ThreadRng) -> Self {
         const LATTERS: [char; 52] = [
             'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q',
@@ -320,21 +369,19 @@ impl ValNode {
             'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '1', '2', '3', '4', '5', '6', '7', '8',
             '9', '0',
         ];
-        let sub_len = rng.gen_range(0..=3);
-        if sub_len == 0 {
-            Self {
-                main: LATTERS[rng.gen_range(0..LATTERS.len())],
-                subscription: None,
-            }
+        let subscription = if rng.gen::<f32>() < 0.7 {
+            None
         } else {
+            let sub_len = rng.gen_range(1..=3);
             let mut sub = String::new();
             for _ in 0..sub_len {
                 sub.push(SUB_CHARS[rng.gen_range(0..SUB_CHARS.len())]);
             }
-            Self {
-                main: LATTERS[rng.gen_range(0..LATTERS.len())],
-                subscription: Some(sub),
-            }
+            Some(sub)
+        };
+        Self {
+            main: LATTERS[rng.gen_range(0..LATTERS.len())],
+            subscription,
         }
     }
 }
@@ -345,8 +392,14 @@ struct NegNode {
 impl NegNode {
     fn to_latex(&self) -> String {
         match &*self.inner {
-            MathNode::Sub(_) | MathNode::Add(_) => "-(".to_owned() + &self.inner.to_latex() + ")",
+            MathNode::Sub(_) | MathNode::Add(_) | MathNode::Neg(_) => "-(".to_owned() + &self.inner.to_latex() + ")",
             _ => "-".to_owned() + &self.inner.to_latex(),
+        }
+    }
+    fn to_text(&self) -> String {
+        match &*self.inner {
+            MathNode::Sub(_) | MathNode::Add(_) | MathNode::Neg(_) => "-(".to_owned() + &self.inner.to_text() + ")",
+            _ => "-".to_owned() + &self.inner.to_text(),
         }
     }
     fn random(rng: &mut ThreadRng, depth: usize, max_depth: usize) -> Self {
@@ -367,6 +420,13 @@ impl AddNode {
             _ => self.right.to_latex(),
         };
         self.left.to_latex() + "+" + &right_latex
+    }
+    fn to_text(&self) -> String {
+        let right_text = match &*self.right {
+            MathNode::Neg(_) => "(".to_owned() + &self.right.to_text() + ")",
+            _ => self.right.to_text(),
+        };
+        self.left.to_text() + "+" + &right_text
     }
     fn random(rng: &mut ThreadRng, depth: usize, max_depth: usize) -> Self {
         Self {
@@ -389,6 +449,15 @@ impl SubNode {
             _ => self.right.to_latex(),
         };
         self.left.to_latex() + "-" + &right_latex
+    }
+    fn to_text(&self) -> String {
+        let right_text = match &*self.right {
+            MathNode::Sub(_) | MathNode::Add(_) | MathNode::Neg(_) => {
+                "(".to_owned() + &self.right.to_text() + ")"
+            }
+            _ => self.right.to_text(),
+        };
+        self.left.to_text() + "-" + &right_text
     }
     fn random(rng: &mut ThreadRng, depth: usize, max_depth: usize) -> Self {
         Self {
@@ -413,6 +482,19 @@ impl MonoNode {
                 _ => val.to_latex(),
             };
             result.push_str(&val_latex);
+        }
+        result
+    }
+    fn to_text(&self) -> String {
+        let mut result = self.coef.to_string() + "*";
+        for val in &self.vals {
+            let val_text = match val {
+                MathNode::Sub(_) | MathNode::Add(_) | MathNode::Neg(_) | MathNode::Mono(_) => {
+                    format!("({})", val.to_text())
+                }
+                _ => val.to_text(),
+            };
+            result.push_str(&val_text);
         }
         result
     }

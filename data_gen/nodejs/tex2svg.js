@@ -5,7 +5,7 @@ require('mathjax').init({
 }).then((MathJax) => {
     let dirs = fs.readdirSync('data/latex');
     for(dir of dirs) {
-        let latex_text = fs.readFileSync('data/latex/' + dir + '/texts.txt').toString();
+        let latex_text = fs.readFileSync('data/latex/' + dir + '/latex_s.txt').toString();
         let lateses = latex_text.split('\n').slice(0, -1);
     
         let svgs = []

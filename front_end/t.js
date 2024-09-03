@@ -70,19 +70,28 @@ async function main() {
     });
 
     // recognition
+    let tokenizer = new Tokenizer();
     processButton.addEventListener('click', () => {
         outputsDiv.innerHTML = '';
         image = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        generate(session, image, (c) => outputsDiv.innerHTML += c, 16, 0);
+        generate(
+            session,
+            image,
+            (c) => outputsDiv.innerHTML += c,
+            48,
+            tokenizer.special_token_ids['<begin>'],
+            tokenizer.special_token_ids['<eos>'],
+            tokenizer,
+        );
 
         // test(session, canvas);
     });
 }
 
 
-async function generate(session, image, outStream, maxLen, eosId) {
+async function generate(session, image, outStream, maxLen, beginId, eosId, tokenizer) {
     let idx = new BigInt64Array(1);
-    idx[0] = BigInt(0);
+    idx[0] = BigInt(beginId);
     let imageTensor = await ort.Tensor.fromImage(
         image,
         {
@@ -105,29 +114,57 @@ async function generate(session, image, outStream, maxLen, eosId) {
             }
         );
     
-        let outputId = await output["output"].getData();
-        if(outputId[0] == eosId) {
+        let outputArray = await output["output"].getData();
+        let outputId = Number(outputArray[0])
+        if(outputId == eosId) {
             break;
         }
-        let outputText = decode(outputId);
-        idx = catBigIntArray(idx, outputId);
-        console.log(outputText);
+        let outputText = tokenizer.decode_single(outputId);
+        idx = catBigIntArray(idx, outputArray);
+        console.log(outputText, outputId);
         outStream(outputText);
     }
     console.log("generation ended");
 }
 
-function decode(idx) {
-    let chars = [];
-    for(id of idx) {
-        chars.push(Number(id) + 32);
-    }
-    return String.fromCharCode(chars);
-}
 
 function catBigIntArray(a1, a2) {
     let result = new BigInt64Array(a1.length + a2.length);
     result.set(a1);
     result.set(a2, a1.length);
     return result;
+}
+
+class Tokenizer {
+    constructor() {
+        this.ascii_char_len = 126 - 32 + 1;
+        this.special_token_ids = {
+            "<begin>": this.ascii_char_len,
+            "<eos>": this.ascii_char_len + 1,
+        };
+        this.special_id_tokens = {}
+        for(let token in this.special_token_ids) {
+            let id = this.special_token_ids[token];
+            this.special_id_tokens[id] = token;
+        }
+        this.vocab_size = this.ascii_char_len + Object.keys(this.special_id_tokens).length;
+    }
+    decode(idx) {
+        let result = ''
+        for(let index of idx) {
+            if(index >= this.ascii_char_len) {
+                result += this.special_id_tokens[index];
+            } else {
+                result += String.fromCharCode(index + 32);
+            }
+        }
+        return result
+    }
+    decode_single(index) {
+        if(index >= this.ascii_char_len) {
+            return this.special_id_tokens[index];
+        } else {
+            return String.fromCharCode(index + 32);
+        }
+    }
 }

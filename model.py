@@ -7,7 +7,6 @@ class Model(nn.Module):
     def __init__(
         self,
         vocab_size,
-        img_block_size,
         n_embed,
         n_layer,
         n_head,
@@ -15,7 +14,7 @@ class Model(nn.Module):
         super().__init__()
         self.wte = nn.Embedding(vocab_size, n_embed)
 
-        self.img_encoder = ConvEncoder(n_embed=n_embed, block_size=img_block_size)
+        self.img_encoder = ConvEncoder(n_embed=n_embed)
         
         self.encoder = nn.ModuleList([Layer(n_embed, n_head) for _ in range(n_layer)])
         self.decoder = nn.ModuleList([LayerWithCrossAttn(n_embed, n_head) for _ in range(n_layer)])
@@ -221,7 +220,6 @@ class ConvEncoder(nn.Module):
     def __init__(
         self,
         n_embed,
-        block_size
     ):
         super().__init__()
         # Convolutional layers
@@ -233,8 +231,6 @@ class ConvEncoder(nn.Module):
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
         
         self.proj = nn.Conv2d(in_channels=64, out_channels=n_embed, kernel_size=4, stride=4)
-
-        self.block_size = block_size
     
     def forward(self, x):
         # Convolution -> Activation -> Pooling
