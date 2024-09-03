@@ -486,13 +486,13 @@ impl MonoNode {
         result
     }
     fn to_text(&self) -> String {
-        let mut result = self.coef.to_string() + "*";
+        let mut result = self.coef.to_string();
         for val in &self.vals {
             let val_text = match val {
                 MathNode::Sub(_) | MathNode::Add(_) | MathNode::Neg(_) | MathNode::Mono(_) => {
-                    format!("({})", val.to_text())
+                    format!("*({})", val.to_text())
                 }
-                _ => val.to_text(),
+                _ => "*".to_owned() + &val.to_text(),
             };
             result.push_str(&val_text);
         }
