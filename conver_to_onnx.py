@@ -29,7 +29,7 @@ model = Model(
     n_head=n_head,
 )
 
-model.load_state_dict(torch.load("models/latex19.bin", map_location='cpu'))
+model.load_state_dict(torch.load("models/hand_math9.bin", map_location='cpu'))
 
 runtime_model = RuntimeModel(model)
 

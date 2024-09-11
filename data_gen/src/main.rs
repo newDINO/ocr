@@ -106,6 +106,9 @@ impl HandWriter {
         for char in CHARS {
             let mut v = Vec::new();
             for entry in fs::read_dir(format!("data/chars/{}", char)).unwrap() {
+                if entry.as_ref().unwrap().file_type().unwrap().is_dir() {
+                    continue;
+                }
                 let path = entry.unwrap().path();
                 v.push(Pixmap::load_png(path).unwrap());
             }
@@ -130,7 +133,7 @@ impl HandWriter {
         let mut total_width = 0.0;
         let mut total_height: f32 = 0.0;
 
-        let char_size = 30.0;
+        let char_size = rng.gen_range(20.0..100.0);
         for c in text.chars() {
             const OTHER_BIG_CHARS: [char; 11] = [
                 'b', 'd', 'f', 'g', 'h', 'j', 'k', 'l', 'p', 'q', 'y',

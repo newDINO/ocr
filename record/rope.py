@@ -53,6 +53,9 @@ Accumulations: 4
 7. One important thing that I have ignored is that visual things truly shouldn't extand their length casually.
 Because it is 2 dimensional!
 
+8. After many training on hand math at one size, the model become good at hand writing at specific size.
+And become poor at other size or my own hand writing, and also poor at original latex.
+
 """
 
 
