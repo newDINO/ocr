@@ -1,216 +1,510 @@
-use std::{fs::File, io::Write};
+use std::{
+    collections::HashMap, fs::{self, File}, io::{Read, Write}, process
+};
 
 use rand::prelude::*;
+use resvg::usvg;
+use clap::Parser;
+use tiny_skia::Pixmap;
+
+#[derive(clap::Parser)]
+struct Args {
+    #[arg(short, long)]
+    config: String,
+}
+
+#[derive(serde::Deserialize)]
+struct Config {
+    num_at_depth: HashMap<String, usize>,
+    min_num: usize,
+    max_length: usize,
+}
+
 fn main() {
-    let mut text_drawer = TextDrawer::new();
-    let mut rng = rand::thread_rng();
-
-    let (min_len, max_len) = (1, 32);
-    let mut text_buffer = Vec::with_capacity(max_len);
-
-    let file = File::create("text_math.zip").unwrap();
-    let mut zip = zip::ZipWriter::new(file);
-    let options = zip::write::SimpleFileOptions::default()
-        .compression_method(zip::CompressionMethod::Stored);
+    let args = Args::parse();
+    let config = read_file_to_string(args.config);
+    let config: Config = toml::from_str(&config).unwrap();
     
-    let n = 2usize.pow(11);
-    let bar = indicatif::ProgressBar::new((max_len * n) as u64);
-    for len in min_len..max_len {
-        let mut texts = String::new();
-        for i in 0..n {
-            random_text(
-                &mut text_buffer,
-                len,
-                &mut rng
-            );
-            let text = std::str::from_utf8(&text_buffer).unwrap();
-            texts += text;
-            texts.push('\n');
-            let img = text_drawer.random_draw(&text, &mut rng, i);
+    let mut rng = thread_rng();
 
-            zip.start_file_from_path(format!("data/texts/l{len}/{i}.png"), options).unwrap();
-            zip.write(&img).unwrap();
-
-            bar.inc(1);
-        }
-        zip.start_file_from_path(format!("data/texts/l{len}/texts.txt"), options).unwrap();
-        zip.write(texts.as_bytes()).unwrap();
-    }
-    
-    bar.finish();
-    zip.finish().unwrap();
-}
-
-fn random_text<'a>(
-    buffer: &'a mut Vec<u8>,
-    len: usize,
-    rng: &mut rand::rngs::ThreadRng,
-) {
-    buffer.clear();
-    const CHARS: [char; 39] = [
-        'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
-        '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '+', '-', '='
-    ];
-    for _ in 0..len {
-        let i = rng.gen_range(0..CHARS.len());
-        buffer.push(CHARS[i] as u8);
-    }
-}
-
-struct TextDrawer {
-    font_system: cosmic_text::FontSystem,
-    swash_cache: cosmic_text::SwashCache,
-    buffer: cosmic_text::Buffer,
-    pixmap: tiny_skia::Pixmap,
-}
-
-impl TextDrawer {
-    fn new() -> Self {
-        let mut database = fontdb::Database::new();
-        database.load_fonts_dir("/data/data/com.termux/files/usr/share/fonts/TTF");
-        let mut font_system = cosmic_text::FontSystem::new_with_locale_and_db("".to_owned(), database);
-        let swash_cache = cosmic_text::SwashCache::new();
-        let metrics = cosmic_text::Metrics::new(14.0, 20.0);
-        let buffer = cosmic_text::Buffer::new(&mut font_system, metrics);
-        let pixmap = tiny_skia::Pixmap::new(256, 128).unwrap();
-        Self {
-            font_system, swash_cache, buffer, pixmap
+    // 1.
+    println!("Generating Nodes...");
+    let mut nodes = Vec::new();
+    for (max_depth_s, num) in config.num_at_depth {
+        let max_depth = max_depth_s.parse::<usize>().unwrap();
+        for _ in 0..num {
+            nodes.push(MathNode::random(&mut rng, 0, max_depth))
         }
     }
-    fn draw(
-        &mut self,
-        text: &str,
-        x: u32,
-        y: u32,
-        color: cosmic_text::Color,
-        size: f32,
-        attrs: cosmic_text::Attrs,
-    ) -> Vec<u8> {
-        let mut buffer = self.buffer.borrow_with(&mut self.font_system);
-        buffer.set_text(text, attrs, cosmic_text::Shaping::Advanced);
-        buffer.set_metrics(cosmic_text::Metrics::new(size, size));
 
-        self.pixmap.fill(tiny_skia::Color::WHITE);
-        buffer.draw(&mut self.swash_cache, color, |tx, ty, _, _, color| {
-            let fx = x + tx as u32;
-            let fy = y + ty as u32;
-            draw_pixel(&mut self.pixmap, fx, fy, color.as_rgba());
+    // 2.
+    println!("Generating Latex and Text...");
+    // Vec<(latex, text)>
+    let mut text_map: HashMap<usize, Vec<(String, String)>> = HashMap::new();
+    for node in &nodes {
+        let latex = node.to_latex();
+        let text = node.to_text();
+        if text.len() > config.max_length {
+            continue; // discarding those longer than the context window of the model
+        }
+        if let Some(v) = text_map.get_mut(&text.len()) {
+            v.push((latex, text));
+        } else {
+            text_map.insert(text.len(), vec![(latex, text)]);
+        }
+    }
+
+    drop(nodes);
+
+    // leaving only those length with enough samples
+    text_map.retain(|_, v| v.len() > config.min_num);
+
+    // saving latex and text
+    for (length, lateses) in &text_map {
+        let _ = fs::create_dir(format!("data/latex/l{}", length));
+        let mut latex_s = String::new();
+        let mut text_s = String::new();
+        for (latex, text) in lateses {
+            latex_s.push_str(latex);
+            latex_s.push('\n');
+            text_s.push_str(text);
+            text_s.push('\n');
+        }
+        let mut file = File::create(format!("data/latex/l{}/latex_s.txt", length)).unwrap();
+        file.write_all(latex_s.as_bytes()).unwrap();
+        let mut file = File::create(format!("data/latex/l{}/text_s.txt", length)).unwrap();
+        file.write_all(text_s.as_bytes()).unwrap();
+    }
+
+    // 3.
+    println!("Generating SVGs...");
+    process::Command::new("node")
+        .arg("nodejs/tex2svg.js")
+        .output()
+        .unwrap();
+    
+    // 4.
+    println!("Generating PNGs...");
+    let render_options = usvg::Options::default();
+    let mut image_buffer = tiny_skia::Pixmap::new(256, 128).unwrap();
+    for (length, _) in &text_map {
+        let svg_src = read_file_to_string(format!("data/latex/l{}/svg.txt", length));
+        svg_src.split("\n").enumerate().for_each(|(i, svg)| {
+            let mut png = gen_png(&mut rng, svg, &mut image_buffer, &render_options);
+            let mut file = File::create(format!("data/latex/l{}/{}.png", length, i)).unwrap();
+            file.write_all(&mut png).unwrap();
         });
-
-        self.pixmap.encode_png().unwrap()
     }
-    fn text_width(
-        &mut self,
-        text: &str,
-        size: f32,
-        attrs: cosmic_text::Attrs,
-    ) -> f32 {
-        let mut buffer = self.buffer.borrow_with(&mut self.font_system);
-        buffer.set_text(text, attrs, cosmic_text::Shaping::Advanced);
-        buffer.set_metrics(cosmic_text::Metrics::new(size, size));
+}
 
-        let mut x = 0.0;
-        let mut w = 0.0;
-        for run in buffer.layout_runs() {
-            for glyph in run.glyphs.iter() {
-                x = glyph.x;
-                w = glyph.w;
+fn gen_png(
+    rng: &mut ThreadRng,
+    svg: &str,
+    buffer: &mut Pixmap,
+    options: &usvg::Options,
+) -> Vec<u8> {
+    buffer.fill(tiny_skia::Color::WHITE);
+    let wf = buffer.width() as f32;
+    let hf = buffer.height() as f32;
+
+    let tree = usvg::Tree::from_str(svg, options).unwrap();
+
+    let original_size = tree.size();
+    let max_scale = (wf / original_size.width()).min(hf / original_size.height());
+    let min_scale = 2.0f32.min(max_scale);
+    let scale = rng.gen_range(min_scale..=max_scale);
+    let width = original_size.width() * scale;
+    let height = original_size.height() * scale;
+
+    let x = rng.gen_range(0.0..=wf - width);
+    let y = rng.gen_range(0.0..=hf - height);
+
+    resvg::render(
+        &tree,
+        usvg::Transform::from_scale(scale, scale).post_translate(x, y),
+        &mut buffer.as_mut(),
+    );
+    buffer.encode_png().unwrap()
+}
+
+fn read_file_to_string<P: AsRef<std::path::Path>>(path: P) -> String {
+    let mut file = File::open(path).unwrap();
+    let mut string = String::new();
+    file.read_to_string(&mut string).unwrap();
+    string
+}
+
+enum MathNode {
+    Add(AddNode),
+    Sub(SubNode),
+    Uint(usize),
+    Neg(NegNode),
+    Val(ValNode),
+    Frac(FracNode),
+    Pow(PowNode),
+    Sqrt(SqrtNode),
+    Mono(MonoNode),
+}
+impl MathNode {
+    fn to_latex(&self) -> String {
+        match self {
+            MathNode::Add(node) => node.to_latex(),
+            MathNode::Sub(node) => node.to_latex(),
+            MathNode::Uint(num) => num.to_string(),
+            MathNode::Neg(node) => node.to_latex(),
+            MathNode::Val(node) => node.to_latex(),
+            MathNode::Frac(node) => node.to_latex(),
+            MathNode::Pow(node) => node.to_latex(),
+            MathNode::Sqrt(node) => node.to_latex(),
+            MathNode::Mono(node) => node.to_latex(),
+        }
+    }
+    fn to_text(&self) -> String {
+        match self {
+            MathNode::Add(node) => node.to_text(),
+            MathNode::Sub(node) => node.to_text(),
+            MathNode::Uint(num) => num.to_string(),
+            MathNode::Neg(node) => node.to_text(),
+            MathNode::Val(node) => node.to_text(),
+            MathNode::Frac(node) => node.to_text(),
+            MathNode::Pow(node) => node.to_text(),
+            MathNode::Sqrt(node) => node.to_text(),
+            MathNode::Mono(node) => node.to_text(),
+        }
+    }
+    fn random(rng: &mut ThreadRng, mut depth: usize, max_depth: usize) -> Self {
+        if depth == max_depth {
+            let rand_type = rng.gen_range(0..2);
+            return if rand_type == 0 {
+                MathNode::Uint(rng.gen_range(0..111))
+            } else if rand_type == 1 {
+                MathNode::Val(ValNode::random(rng))
+            } else {
+                unreachable!()
+            };
+        } else if depth == 0 {
+            depth += 1;
+            let rand_type = rng.gen_range(0..6);
+            return if rand_type == 0 {
+                MathNode::Add(AddNode::random(rng, depth, max_depth))
+            } else if rand_type == 1 {
+                MathNode::Sub(SubNode::random(rng, depth, max_depth))
+            } else if rand_type == 2 {
+                MathNode::Frac(FracNode::random(rng, depth, max_depth))
+            } else if rand_type == 3 {
+                MathNode::Pow(PowNode::random(rng, depth, max_depth))
+            } else if rand_type == 4 {
+                MathNode::Sqrt(SqrtNode::random(rng, depth, max_depth))
+            } else if rand_type == 5 {
+                MathNode::Mono(MonoNode::random(rng, depth, max_depth))
+            } else {
+                unreachable!()
+            };
+        } else {
+            depth += 1;
+            let rand_type = rng.gen_range(0..8);
+            return if rand_type == 0 {
+                MathNode::Add(AddNode::random(rng, depth, max_depth))
+            } else if rand_type == 1 {
+                MathNode::Sub(SubNode::random(rng, depth, max_depth))
+            } else if rand_type == 2 {
+                MathNode::Neg(NegNode::random(rng, depth, max_depth))
+            } else if rand_type == 3 {
+                MathNode::Val(ValNode::random(rng))
+            } else if rand_type == 4 {
+                MathNode::Frac(FracNode::random(rng, depth, max_depth))
+            } else if rand_type == 5 {
+                MathNode::Pow(PowNode::random(rng, depth, max_depth))
+            } else if rand_type == 6 {
+                MathNode::Sqrt(SqrtNode::random(rng, depth, max_depth))
+            } else if rand_type == 7 {
+                MathNode::Mono(MonoNode::random(rng, depth, max_depth))
+            } else {
+                unreachable!()
+            };
+        }
+    }
+    fn random_non_num(rng: &mut ThreadRng, mut depth: usize, max_depth: usize) -> Self {
+        if depth == max_depth {
+            return MathNode::Val(ValNode::random(rng));
+        }
+        depth += 1;
+        let rand_type = rng.gen_range(0..8);
+        return if rand_type == 0 {
+            MathNode::Add(AddNode::random(rng, depth, max_depth))
+        } else if rand_type == 1 {
+            MathNode::Sub(SubNode::random(rng, depth, max_depth))
+        } else if rand_type == 2 {
+            MathNode::Neg(NegNode::random(rng, depth, max_depth))
+        } else if rand_type == 3 {
+            MathNode::Val(ValNode::random(rng))
+        } else if rand_type == 4 {
+            MathNode::Frac(FracNode::random(rng, depth, max_depth))
+        } else if rand_type == 5 {
+            MathNode::Pow(PowNode::random(rng, depth, max_depth))
+        } else if rand_type == 6 {
+            MathNode::Sqrt(SqrtNode::random(rng, depth, max_depth))
+        } else if rand_type == 7 {
+            MathNode::Mono(MonoNode::random(rng, depth, max_depth))
+        } else {
+            unreachable!()
+        };
+    }
+}
+
+struct SqrtNode {
+    inner: Box<MathNode>,
+}
+impl SqrtNode {
+    fn to_latex(&self) -> String {
+        format!("\\sqrt{{{}}}", self.inner.to_latex())
+    }
+    fn to_text(&self) -> String {
+        format!("sqrt({})", self.inner.to_text())
+    }
+    fn random(rng: &mut ThreadRng, depth: usize, max_depth: usize) -> Self {
+        Self {
+            inner: Box::new(MathNode::random(rng, depth, max_depth)),
+        }
+    }
+}
+
+struct PowNode {
+    base: Box<MathNode>,
+    exp: Box<MathNode>,
+}
+impl PowNode {
+    fn to_latex(&self) -> String {
+        let base_string = match &*self.base {
+            MathNode::Add(_)
+            | MathNode::Sub(_)
+            | MathNode::Neg(_)
+            | MathNode::Frac(_)
+            | MathNode::Pow(_)
+            | MathNode::Mono(_) => {
+                format!("({})", self.base.to_latex())
             }
-        }
-        x + w
+            _ => self.base.to_latex(),
+        };
+        format!("{}^{{{}}}", base_string, self.exp.to_latex())
     }
-    fn random_pos(&mut self, text: &str, attrs: cosmic_text::Attrs, rng: &mut rand::rngs::ThreadRng) -> (u32, u32, f32) {
-        let wf = self.pixmap.width() as f32;
-        let hf = self.pixmap.height() as f32;
-        let test_size = 16.0;
-        let test_width = self.text_width(text, test_size, attrs);
-
-        let max_size = hf.min(test_size / test_width * wf);
-        let min_size = 20.0f32.min(max_size);
-        let size = rng.gen_range(min_size..=max_size);
-        let width = test_width / test_size * size;
-
-        let x = rng.gen_range(0..=self.pixmap.width().saturating_sub(width as u32));
-        let y = rng.gen_range(0..=self.pixmap.height().saturating_sub(size as u32));
-        (x, y, size)
+    fn to_text(&self) -> String {
+        let exp_text = match &*self.exp {
+            MathNode::Uint(_) | MathNode::Val(_) => self.exp.to_text(),
+            _ => format!("({})", self.exp.to_text()),
+        };
+        format!("{}**{}", self.base.to_text(), exp_text)
     }
-    fn random_attrs(&mut self, i: usize) -> cosmic_text::Attrs<'static> {
-        let mut result = cosmic_text::Attrs::new();
-
-        use cosmic_text::Family;
-        const FAMILIES: [cosmic_text::Family<'static>; 3] = [
-            Family::Monospace,
-            Family::Serif,
-            Family::Name("DejaVu Sans")
-        ];
-        let family = FAMILIES[i / 2 % FAMILIES.len()];
-        result.family = family;
-
-        use cosmic_text::Stretch;
-        const STRETCHES: [Stretch; 2] = [
-            Stretch::Condensed,
-            Stretch::Normal,
-        ];
-        result.stretch = STRETCHES[i % STRETCHES.len()];
-        if self.font_system.get_font_matches(result).len() == 0 {
-            result.stretch = Stretch::Normal;
+    fn random(rng: &mut ThreadRng, depth: usize, max_depth: usize) -> Self {
+        Self {
+            base: Box::new(MathNode::random(rng, depth, max_depth)),
+            exp: Box::new(MathNode::random(rng, depth, max_depth)),
         }
+    }
+}
 
-        use cosmic_text::Weight;
-        const WEIGHTS: [Weight; 3] = [
-            Weight::BOLD,
-            Weight::NORMAL,
-            Weight::LIGHT
-        ];
-        result.weight = WEIGHTS[i % WEIGHTS.len()];
-        if self.font_system.get_font_matches(result).len() == 0 {
-            result.weight = Weight::NORMAL;
+struct FracNode {
+    up: Box<MathNode>,
+    down: Box<MathNode>,
+}
+impl FracNode {
+    fn to_latex(&self) -> String {
+        format!(
+            "\\frac{{{}}}{{{}}}",
+            self.up.to_latex(),
+            self.down.to_latex()
+        )
+    }
+    fn to_text(&self) -> String {
+        let up_text = match &*self.up {
+            MathNode::Uint(_) | MathNode::Val(_) => self.up.to_text(),
+            _ => format!("({})", self.up.to_text()),
+        };
+        let down_text = match &*self.down {
+            MathNode::Uint(_) | MathNode::Val(_) => self.down.to_text(),
+            _ => format!("({})", self.down.to_text()),
+        };
+        format!("{}/{}", up_text, down_text)
+    }
+    fn random(rng: &mut ThreadRng, depth: usize, max_depth: usize) -> Self {
+        Self {
+            up: Box::new(MathNode::random(rng, depth, max_depth)),
+            down: Box::new(MathNode::random(rng, depth, max_depth)),
         }
+    }
+}
 
-        use cosmic_text::Style;
-        const STYLES: [Style; 2] = [
-            Style::Normal,
-            Style::Oblique
-        ];
-        result.style = STYLES[i % 2];
-        if self.font_system.get_font_matches(result).len() == 0 {
-            result.style = Style::Normal
+struct ValNode {
+    main: char,
+    subscription: Option<String>,
+}
+impl ValNode {
+    fn to_latex(&self) -> String {
+        if let Some(sub) = &self.subscription {
+            if sub.len() > 1 {
+                self.main.to_string() + "_{" + sub + "}"
+            } else {
+                self.main.to_string() + "_" + sub
+            }
+        } else {
+            self.main.to_string()
         }
+    }
+    fn to_text(&self) -> String {
+        if let Some(sub) = &self.subscription {
+            format!("{}_{} ", self.main, sub)
+        } else {
+            self.main.to_string()
+        }
+    }
+    fn random(rng: &mut ThreadRng) -> Self {
+        const LATTERS: [char; 52] = [
+            'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q',
+            'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h',
+            'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y',
+            'z',
+        ];
+        const SUB_CHARS: [char; 36] = [
+            'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q',
+            'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '1', '2', '3', '4', '5', '6', '7', '8',
+            '9', '0',
+        ];
+        let subscription = if rng.gen::<f32>() < 0.7 {
+            None
+        } else {
+            let sub_len = rng.gen_range(1..=3);
+            let mut sub = String::new();
+            for _ in 0..sub_len {
+                sub.push(SUB_CHARS[rng.gen_range(0..SUB_CHARS.len())]);
+            }
+            Some(sub)
+        };
+        Self {
+            main: LATTERS[rng.gen_range(0..LATTERS.len())],
+            subscription,
+        }
+    }
+}
 
+struct NegNode {
+    inner: Box<MathNode>,
+}
+impl NegNode {
+    fn to_latex(&self) -> String {
+        match &*self.inner {
+            MathNode::Sub(_) | MathNode::Add(_) | MathNode::Neg(_) => "-(".to_owned() + &self.inner.to_latex() + ")",
+            _ => "-".to_owned() + &self.inner.to_latex(),
+        }
+    }
+    fn to_text(&self) -> String {
+        match &*self.inner {
+            MathNode::Sub(_) | MathNode::Add(_) | MathNode::Neg(_) => "-(".to_owned() + &self.inner.to_text() + ")",
+            _ => "-".to_owned() + &self.inner.to_text(),
+        }
+    }
+    fn random(rng: &mut ThreadRng, depth: usize, max_depth: usize) -> Self {
+        Self {
+            inner: Box::new(MathNode::random(rng, depth, max_depth)),
+        }
+    }
+}
+
+struct AddNode {
+    left: Box<MathNode>,
+    right: Box<MathNode>,
+}
+impl AddNode {
+    fn to_latex(&self) -> String {
+        let right_latex = match &*self.right {
+            MathNode::Neg(_) => "(".to_owned() + &self.right.to_latex() + ")",
+            _ => self.right.to_latex(),
+        };
+        self.left.to_latex() + "+" + &right_latex
+    }
+    fn to_text(&self) -> String {
+        let right_text = match &*self.right {
+            MathNode::Neg(_) => "(".to_owned() + &self.right.to_text() + ")",
+            _ => self.right.to_text(),
+        };
+        self.left.to_text() + "+" + &right_text
+    }
+    fn random(rng: &mut ThreadRng, depth: usize, max_depth: usize) -> Self {
+        Self {
+            left: Box::new(MathNode::random(rng, depth, max_depth)),
+            right: Box::new(MathNode::random(rng, depth, max_depth)),
+        }
+    }
+}
+
+struct SubNode {
+    left: Box<MathNode>,
+    right: Box<MathNode>,
+}
+impl SubNode {
+    fn to_latex(&self) -> String {
+        let right_latex = match &*self.right {
+            MathNode::Sub(_) | MathNode::Add(_) | MathNode::Neg(_) => {
+                "(".to_owned() + &self.right.to_latex() + ")"
+            }
+            _ => self.right.to_latex(),
+        };
+        self.left.to_latex() + "-" + &right_latex
+    }
+    fn to_text(&self) -> String {
+        let right_text = match &*self.right {
+            MathNode::Sub(_) | MathNode::Add(_) | MathNode::Neg(_) => {
+                "(".to_owned() + &self.right.to_text() + ")"
+            }
+            _ => self.right.to_text(),
+        };
+        self.left.to_text() + "-" + &right_text
+    }
+    fn random(rng: &mut ThreadRng, depth: usize, max_depth: usize) -> Self {
+        Self {
+            left: Box::new(MathNode::random(rng, depth, max_depth)),
+            right: Box::new(MathNode::random(rng, depth, max_depth)),
+        }
+    }
+}
+
+struct MonoNode {
+    coef: usize,
+    vals: Vec<MathNode>,
+}
+impl MonoNode {
+    fn to_latex(&self) -> String {
+        let mut result = self.coef.to_string();
+        for val in &self.vals {
+            let val_latex = match val {
+                MathNode::Sub(_) | MathNode::Add(_) | MathNode::Neg(_) | MathNode::Mono(_) => {
+                    format!("({})", val.to_latex())
+                }
+                _ => val.to_latex(),
+            };
+            result.push_str(&val_latex);
+        }
         result
     }
-    fn random_draw(&mut self, text: &str, rng: &mut rand::rngs::ThreadRng, index: usize) -> Vec<u8> {
-        let attrs = self.random_attrs(index);
-        let (x, y, size) = self.random_pos(text, attrs, rng);
-        let color = cosmic_text::Color::rgba(0, 0, 0, 255);
-
-        self.draw(text, x, y, color, size, attrs)
+    fn to_text(&self) -> String {
+        let mut result = self.coef.to_string();
+        for val in &self.vals {
+            let val_text = match val {
+                MathNode::Sub(_) | MathNode::Add(_) | MathNode::Neg(_) | MathNode::Mono(_) => {
+                    format!("*({})", val.to_text())
+                }
+                _ => "*".to_owned() + &val.to_text(),
+            };
+            result.push_str(&val_text);
+        }
+        result
     }
-}
-
-fn draw_pixel(pixmap: &mut tiny_skia::Pixmap, x: u32, y: u32, color: [u8; 4]) {
-    let color = tiny_skia::ColorU8::from_rgba(color[0], color[1], color[2], color[3]);
-    if x >= pixmap.width() || y >= pixmap.height() {
-        return;
+    fn random(rng: &mut ThreadRng, depth: usize, max_depth: usize) -> Self {
+        let coef = rng.gen_range(2..111);
+        let val_len = rng.gen_range(1..=3);
+        let mut vals = Vec::with_capacity(val_len);
+        for _ in 0..val_len {
+            vals.push(MathNode::random_non_num(rng, depth, max_depth));
+        }
+        Self { coef, vals }
     }
-    let index = (x + y * pixmap.width()) as usize;
-    let prev_color = pixmap.pixels()[index].demultiply();
-    pixmap.pixels_mut()[index] = draw_on_color(prev_color, color).premultiply();
-}
-
-fn coloru8_to_color(coloru8: tiny_skia::ColorU8) -> tiny_skia::Color {
-    tiny_skia::Color::from_rgba8(coloru8.red(), coloru8.green(), coloru8.blue(), coloru8.alpha())
-}
-
-fn draw_on_color(canvas_coloru8: tiny_skia::ColorU8, paint_coloru8: tiny_skia::ColorU8) -> tiny_skia::ColorU8 {
-    let canvas_color = coloru8_to_color(canvas_coloru8);
-    let paint_color = coloru8_to_color(paint_coloru8);
-    let canvas_k = 1.0 - paint_color.alpha();
-    let paint_k = paint_color.alpha();
-    let r = canvas_k * canvas_color.red() + paint_k * paint_color.red();
-    let g = canvas_k * canvas_color.green() + paint_k * paint_color.green();
-    let b = canvas_k * canvas_color.blue() + paint_k * paint_color.blue();
-    let a = canvas_k * canvas_color.alpha() + paint_k;
-    let color = tiny_skia::Color::from_rgba(r, g, b, a.min(1.0)).unwrap();
-    color.to_color_u8()
 }

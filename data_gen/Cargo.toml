@@ -3,6 +3,7 @@ name = "data_gen"
 version = "0.1.0"
 edition = "2021"
 
+# text
 # [dependencies]
 # imageproc = "*"
 # rand = "*"
@@ -14,15 +15,20 @@ edition = "2021"
 # toml = "*"
 # serde = { version = "*", features = ["derive"] }
 
+# math
+# [dependencies]
+# rand = "*"
+# tiny-skia = "*"
+# resvg = "*"
+# usvg = "*"
+# toml = "*"
+# serde = { version = "*", features = ["derive"] }
+# clap = { version = "*", features = ["derive"] }
+
+# hand writting
 [dependencies]
 rand = "*"
 tiny-skia = "*"
-resvg = "*"
-usvg = "*"
 toml = "*"
 serde = { version = "*", features = ["derive"] }
 clap = { version = "*", features = ["derive"] }
-
-# [dependencies]
-# typst = "*"
-# typst-svg = "*"
