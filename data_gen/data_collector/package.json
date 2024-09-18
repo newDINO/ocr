@@ -1,0 +1,8 @@
+{
+  "devDependencies": {
+    "@types/wicg-file-system-access": "^2023.10.5"
+  },
+  "scripts": {
+    "watch": "esbuild t.ts --watch --outfile=t.js"
+  }
+}

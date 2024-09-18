@@ -5,3 +5,7 @@ max_length = 48
 1 = 16
 2 = 16
 3 = 16
+
+[gen_probs]
+normal = 0.9
+single_char = 0.1

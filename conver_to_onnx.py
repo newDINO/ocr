@@ -29,7 +29,9 @@ model = Model(
     n_head=n_head,
 )
 
-model.load_state_dict(torch.load("models/hand_math9.bin", map_location='cpu'))
+model.load_state_dict(torch.load("models/hand_math19_finetuned.bin", map_location='cpu'))
+
+print(sum(p.numel() for p in model.parameters()))
 
 runtime_model = RuntimeModel(model)
 

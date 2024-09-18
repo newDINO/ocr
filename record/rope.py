@@ -56,6 +56,11 @@ Because it is 2 dimensional!
 8. After many training on hand math at one size, the model become good at hand writing at specific size.
 And become poor at other size or my own hand writing, and also poor at original latex.
 
+9. Some conclusions:
+1. Bad at distinguishing capital X and lowercase x.
+2. If I write 'a' too large, it will be recognized as many characters combined.
+
+10. I want to test if I finetune the model with a small dataset, it will be better at recognizing my handwriting.
 """
 
 

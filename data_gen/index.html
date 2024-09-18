@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<head>
+    <title>Data Collector</title>
+    <meta charset="utf-8">
+</head>
+<body style="display: flex; justify-content: center; background-color: aliceblue;">
+    <div>
+        <style>
+            canvas {
+                background-color: white;
+                border-radius: 7px;
+            }
+        </style>
+        <canvas id="canvas"></canvas>
+        <br>
+        <button id="dirPicker">select dataset directory</button>
+        <span id="dirPath"></span>
+        <br>
+        <button id="clearButton">clear</button>
+        <input id="lineWidth" type="range" min="1" max="10" value="5">
+        <input id="label" type="text">
+        <br>
+        <input id="fileCount" type="number" value="0">
+        <button id="saveButton">save</button>
+        <button id="saveLabelButton">save label</button>
+        <br>
+        <textarea id="labels"></textarea>
+    </div>
+    <script src="data_collector/t.js"></script>
+</body>

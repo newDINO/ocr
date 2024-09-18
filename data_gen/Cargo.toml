@@ -32,3 +32,9 @@ tiny-skia = "*"
 toml = "*"
 serde = { version = "*", features = ["derive"] }
 clap = { version = "*", features = ["derive"] }
+
+# font test
+# [dependencies]
+# image = "*"
+# ab_glyph = "*"
+# imageproc = "*"
